@@ -1,0 +1,14 @@
+#!/usr/bin/bash
+
+src_dir=$1
+map_name=${2:-SRCS}
+
+printf "#include <string>\n"
+printf "#include <unordered_map>\n\n"
+printf "static const std::unordered_map<std::string,std::string> ${map_name} {\n"
+for k in ${src_dir}/*; do
+    printf "{ \"$(basename $k)\", R\"__DELIM__(";
+    cat $k;
+    printf ")__DELIM__\"},\n\n";
+done
+printf "};\n"

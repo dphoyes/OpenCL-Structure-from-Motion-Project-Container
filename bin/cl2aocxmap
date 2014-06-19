@@ -1,0 +1,53 @@
+#!/usr/bin/zsh
+
+set -e
+export QUARTUS_ROOTDIR_OVERRIDE=/opt/altera/13.1/quartus
+export AOCL_BOARD_PACKAGE_ROOT=/opt/altera/13.1/hld/board/c5soc
+
+src_dir=$(realpath $1)
+map_name=${2:-SRCS}
+out_filename=$(realpath ${3:-header.hh})
+shift 3
+aoc_opts=($*)
+aoc_opts_compressed=$(echo $aoc_opts | sed 's/ //g')
+
+mkdir -p aoc_workspace
+cd aoc_workspace
+mkdir -p fake_home
+export HOME=$(realpath fake_home)
+
+kernel_array=()
+
+{
+    for cl_file_name in ${src_dir}/*; do
+
+        cl_id=$(sha1sum $cl_file_name | awk '{print $1}')$aoc_opts_compressed
+        cl_dir=../aoc_cache/$cl_id
+        cl_basename=$(basename -s .cl $cl_file_name)
+        kernel_array+=("${cl_dir}/${cl_basename}")
+
+        if [ -f $cl_dir/${cl_basename}.aocx ]; then
+            echo ${cl_basename}.cl reused from $cl_id
+        else
+            aoc -v --board c5soc --estimate-throughput --report $aoc_opts $cl_file_name
+            mkdir -p $cl_dir
+            cp ${cl_basename}{.aocx,.aoco,/*.attrib,/*.area,/{${cl_basename}.{cl.orig,log},area.rpt,acl_quartus_report.txt,sys_description.txt}} $cl_dir/
+            echo ${cl_basename}.cl compiled to $cl_id
+        fi
+
+        cat $cl_dir/acl_quartus_report.txt
+        echo $cl_id > cl_hash
+    done
+} 1>&2
+
+{
+    printf "#include <vector>\n"
+    printf "#include <unordered_map>\n\n"
+    printf "static const std::unordered_map<std::string, std::vector<unsigned char> > ${map_name} {\n"
+    for k in $kernel_array; do
+        printf "{ \"$(basename $k).cl\", {\n";
+        xxd -i < ${k}.aocx
+        printf "}},\n\n";
+    done
+    printf "};\n"      
+} > $out_filename
